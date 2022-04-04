@@ -1,0 +1,80 @@
+name: Repository Access - Audit Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      organization-name:
+        description: Org Name
+        required: true
+        type: string
+
+jobs:
+
+  get-explicit-access-repos:
+    runs-on: ubuntu-latest
+    env:
+      ORG_NAME: ${{ github.event.inputs.organization-name }}
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      AFFILIATION: 'organization_member'
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v3
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+      - name: Run Python Script
+        run: |
+          python3 scripts/get-repos-with-explicit-access.py
+      - uses: actions/upload-artifact@v3
+        with:
+          name: explicit-access-repos
+          path: explicit-access-repos.csv
+
+  get-all-repos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Login to GH CLI
+        run: |
+          echo ${{ secrets.GH_TOKEN }} > token.txt
+          gh auth login --with-token < token.txt
+      - name: Run gh cli 
+        run: |
+          gh repo list $ORG_NAME -L 1500 --json 'name,viewerPermission' | jq -r '(.[0] | keys_unsorted) as $keys | $keys, map([.[ $keys[] ]])[] | @csv' > all-repos.csv
+        env:
+          ORG_NAME: ${{ github.event.inputs.organization-name }}
+      - uses: actions/upload-artifact@v3
+        with:
+          name: all-repos
+          path: all-repos.csv
+      
+  diff:
+    needs: [get-explicit-access-repos,get-all-repos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/download-artifact@v3
+        with:
+          name: explicit-access-repos 
+      - uses: actions/download-artifact@v3
+        with:
+          name: all-repos
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v3
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests 
+      - name: Run Python Script
+        run: |
+          python3 scripts/get-repos-without-explicit-access.py    
+      - uses: actions/upload-artifact@v3
+        with:
+          name: to-be-added-manually
+          path: to-be-added-manually.csv
